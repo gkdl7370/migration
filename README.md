@@ -1,139 +1,176 @@
 # DB 데이터 이관 엔진 (Oracle → PostgreSQL)
 
-## Overview
-- **Language**: Java 21  
-- **Framework**: Spring Boot 3.2.4, Spring Batch 5.1.1  
-- **Database**: Oracle (Source), PostgreSQL (Target)  
-- **Library**: HikariCP, Spring JDBC (`NamedParameterJdbcTemplate`)  
+## 개요
+
+- Java 21, Spring Boot, Spring Batch 기반
+- Oracle → PostgreSQL로 140여 개 테이블 이관
+
+단순한 데이터 복사가 아니라,  
+다양한 스키마를 가진 테이블들을 어떻게 일관된 방식으로 옮길 것인가에 집중한 작업
 
 ---
 
-## 주요 엔지니어링 결정 (Technical Decisions)
+## 1. DTO를 만들지 않기로 한 이유
 
-### 1. DTO-less Architecture (140+ 테이블 관리 최적화)
+처음에는 테이블마다 DTO + Mapper를 만드는 구조를 생각했는데  
+140개 테이블 기준으로 보면 구조가 너무 무거워짐
 
-**Problem**  
-- 테이블별 DTO + Mapper 생성 시 클래스 140개 이상 발생  
-- 스키마 변경 시 코드 수정 비용 증가  
+- DTO 클래스 140개 이상
+- 스키마 변경 시 전부 수정 필요
 
-**Decision**  
-- `ColumnMapRowMapper` 기반의 **Generic Map 구조** 채택  
+이걸 굳이 컴파일 타임에 고정해야 할지 의문이 들었고,  
+`ColumnMapRowMapper` 기반으로 Map 구조를 사용하는 방식으로 변경
 
-**Benefit**  
-- 런타임 메타데이터 기반 동적 처리  
-- 스키마 변경 대응 유연성 확보  
-- 코드량 및 개발 공수 **90% 이상 절감**  
+### 느낀 점
 
----
+- 개발 속도는 확실히 빨라짐
+- 스키마 변경 대응이 거의 필요 없어짐
 
-### 2. Auto-Discovery (운영 자동화)
+다만
 
-**Problem**  
-- YAML 기반 테이블 관리 → 누락 및 휴먼 에러 발생 가능  
+- 타입 안정성이 사라지고
+- 디버깅 시 명확성이 떨어지는 단점 존재
 
-**Decision**  
-- `JDBC DatabaseMetaData` 활용  
-- 특정 스키마(KDM)의 모든 테이블 자동 탐색  
-
-**Benefit**  
-- 설정 파일 없이 전체 테이블 자동 처리  
-- 완전 자동화된 이관 파이프라인 구축  
+결론적으로 이관 작업처럼 "한 번에 흘려보내는 데이터"에는 적합한 선택이라고 판단
 
 ---
 
-### 3. Parallel Processing (처리량 극대화)
+## 2. 테이블 목록 자동화에 대한 고민
 
-**Problem**  
-- 140개 테이블을 단일 스레드로 처리 시 수행 시간 급증  
+초기에는 YAML로 이관 대상 테이블을 관리하려 했지만  
+운영 관점에서 다음과 같은 문제가 있다고 판단
 
-**Decision**  
-- Spring Batch `Flow + Split` 구조 기반 병렬 처리  
+- 테이블 추가 시 누락 가능
+- 수동 관리에 따른 휴먼 에러
 
-**Benefit**  
-- CPU 및 Connection Pool 자원 최대 활용  
-- 전체 처리 시간 단축 (Throughput 향상)  
+그래서 `DatabaseMetaData`를 활용하여  
+특정 스키마(KDM)의 테이블을 자동으로 조회하는 방식으로 변경
 
----
+### 느낀 점
 
-## 트러블슈팅 및 해결 (Troubleshooting)
+- 전체 이관 작업에는 매우 적합
+- 설정 관리 부담이 사라짐
 
-### 1. Spring Batch 빈 생명주기 문제
+하지만
 
-**Issue**  
-- 루프 내 Reader 직접 생성 시 `JdbcTemplate` 초기화 실패  
-- `NullPointerException` 발생  
+- 특정 테이블 제외
+- 실행 순서 제어
 
-**Solution**  
-- `afterPropertiesSet()` 수동 호출로 초기화 강제 수행  
+같은 요구사항에는 추가 로직이 필요
 
----
-
-### 2. Unique Constraint 불일치
-
-**Issue**  
-- PostgreSQL에 Unique Index 없는 상태에서  
-  `ON CONFLICT` 사용 → 문법 오류 발생  
-
-**Solution**  
-- Paging → Cursor 방식 (`JdbcCursorItemReader`) 전환  
-- `ON CONFLICT` 제거 후 순수 INSERT 구조로 변경  
+결국 자동화와 제어성 사이의 트레이드오프가 존재
 
 ---
 
-### 3. 네트워크 불안정 (Connection Reset)
+## 3. 병렬 처리에 대한 접근
 
-**Issue**  
-- 대량 데이터 전송 중 커넥션 강제 종료 발생  
+140개 테이블을 순차 처리할 경우 수행 시간이 과도하게 증가
 
-**Solution**  
-- HikariCP `keepalive-time` 설정 적용  
-- 주기적 헬스체크로 유휴 연결 유지  
+Spring Batch의 Flow + Split 구조를 활용해 병렬 처리 적용
 
----
+### 고민했던 부분
 
-### 4. 데이터 정합성 & 재시작 전략
+- 스레드 수를 늘리면 선형적으로 빨라지는지
+- DB가 이를 감당할 수 있는지
 
-**Risk**  
-- Cursor 방식은 정렬 키가 없어  
-  재시작 시 중복 데이터 발생 가능  
+### 실제 결과
 
-**Countermeasure**
+- CPU보다 DB Connection Pool이 병목이 되는 경우가 많았음
+- 스레드 수를 늘리는 것만으로는 성능 개선에 한계 존재
 
-1. **Idempotency 확보**
-   - 실패 시 테이블 `TRUNCATE` 후 재적재 (Clean-Start)
-
-2. **메타데이터 기반 모니터링**
-   - `BATCH_STEP_EXECUTION` 테이블 활용
-   - 실패 지점 추적 및 수동 보정 프로세스 정의  
-
-**Result**  
-- 다양한 제약 조건 환경에서도  
-- 복잡도를 낮추고 운영 명확성을 선택  
-- **이관 성공률 100% 달성**
+병렬 처리는 스레드 수 조절 문제가 아니라  
+DB 자원과 함께 튜닝해야 하는 문제라는 점을 체감
 
 ---
 
-## 학습 및 회고 (Retrospective)
+## 트러블슈팅 기록
 
-### Batch 아키텍처
-- Paging vs Cursor 방식 비교  
-  - 정렬 키 필요 여부  
-  - 메모리 사용량  
-  - 재시작 전략 차이  
+### 1. Reader 직접 생성 시 발생한 문제
 
-### Spring JDBC
-- `NamedParameterJdbcTemplate` 활용  
-- 동적 SQL 생성 및 Batch Update 최적화  
+루프 내부에서 Reader를 직접 생성했을 때  
+JdbcTemplate이 초기화되지 않아 NullPointerException 발생
 
-### 병렬성 제어
-- `TaskExecutor` 기반 스레드 풀 관리  
-- DB Connection Pool과의 상관관계 이해  
+Spring Batch가 Bean lifecycle에 의존하고 있다는 점을 인지하지 못했던 것이 원인
+
+`afterPropertiesSet()`을 수동 호출하여 초기화를 강제 수행
+
+### 느낀 점
+
+프레임워크가 내부적으로 수행해주는 초기화 과정에 대한 이해가 부족했음을 인지
 
 ---
 
-## 핵심 요약
+### 2. ON CONFLICT 사용 실패
 
-- DTO-less 구조로 **확장성과 유지보수성 확보**
-- Auto-Discovery로 **완전 자동화된 이관 시스템 구축**
-- 병렬 처리로 **대용량 데이터 처리 성능 극대화**
-- 운영 중심 전략으로 **안정적인 100% 이관 성공 달성**
+PostgreSQL에서 ON CONFLICT 구문 사용 중 오류 발생
+
+원인은 일부 테이블에 Unique Index가 존재하지 않았기 때문
+
+구조를 다음과 같이 변경
+
+- Paging 방식 → Cursor 방식
+- Upsert → 단순 Insert
+
+### 느낀 점
+
+이관 작업에서는 항상 Upsert가 필요한 것은 아니었고  
+불필요한 복잡도를 추가하고 있었다고 판단
+
+이후 실패 시 재적재하는 방식으로 전략 변경
+
+---
+
+### 3. Connection Reset 문제
+
+대량 데이터 이관 중 커넥션이 끊기는 현상 발생
+
+DB 문제가 아닌 네트워크 인프라(방화벽, 프록시) 영향으로 판단
+
+HikariCP keepalive 설정을 적용하여 해결
+
+### 느낀 점
+
+데이터 이관은 애플리케이션 영역뿐 아니라  
+인프라 환경의 영향을 크게 받는 작업
+
+---
+
+### 4. 재시작 전략에 대한 고민
+
+Cursor 방식 도입 이후 발생한 문제
+
+- 실패 시 처리 지점 추적 어려움
+- 재시작 시 중복 데이터 발생 가능
+
+복잡한 추적 로직 대신 운영 단순성을 선택
+
+- 실패 시 대상 테이블 TRUNCATE
+- 전체 재적재 방식 적용
+
+### 느낀 점
+
+완벽한 재시작 메커니즘보다  
+운영자가 이해하기 쉬운 방식이 더 중요할 수 있음
+
+---
+
+## 정리
+
+이 작업은 기술 선택의 문제가 아니라  
+복잡도를 어디까지 허용할 것인지 결정하는 과정에 가까웠음
+
+- DTO vs Map
+- 자동화 vs 제어
+- Paging vs Cursor
+- 정합성 보장 vs 운영 단순화
+
+각 선택에는 명확한 트레이드오프가 존재
+
+---
+
+## 개인적으로 얻은 것
+
+- Spring Batch 동작 방식에 대한 이해
+- JDBC 기반 처리에서의 성능 포인트 체감
+- 병렬 처리와 DB 자원의 관계 이해
+- 운영 가능한 시스템 설계의 중요성 인식
