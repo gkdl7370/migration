@@ -7,20 +7,20 @@ spring:
 
   datasource:
     postgres:
-      url: jdbc:postgresql://water.eburin.net:13633/waterdb
-      username: wateruser
-      password: water!03
-      driver-class-name: org.postgresql.Driver
+      url:
+      username:
+      password:
+      driver-class-name:
       hikari:
-        pool-name: Postgres-Target-Pool
-        maximum-pool-size: 30 # 병렬 처리를 위해 커넥션 수 상향
+        pool-name:
+        maximum-pool-size:
 
     oracle:
-      url: jdbc:oracle:thin:@//water.eburin.net:13651/orclpdb1.localdomain
-      username: kdm
-      password: kdmvotmdnjem!
-      driver-class-name: oracle.jdbc.OracleDriver
+      url:
+      username:
+      password:
+      driver-class-name:
       hikari:
-        pool-name: Oracle-Source-Pool
-        maximum-pool-size: 30 # 병렬 처리를 위해 커넥션 수 상향
-        read-only: true
+        pool-name:
+        maximum-pool-size:
+        read-only:
