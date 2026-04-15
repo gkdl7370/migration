@@ -1,5 +1,11 @@
 # DB 데이터 이관 엔진 (Oracle → PostgreSQL)
-
+[![Java](https://img.shields.io/badge/Java_21-ED8B00?style=flat&logo=openjdk&logoColor=white)]()
+[![Spring Boot](https://img.shields.io/badge/Spring_Boot_3.2-6DB33F?style=flat&logo=springboot&logoColor=white)]()
+[![Spring Batch](https://img.shields.io/badge/Spring_Batch-6DB33F?style=flat&logo=spring&logoColor=white)]()
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-4169E1?style=flat&logo=postgresql&logoColor=white)]()
+[![Oracle](https://img.shields.io/badge/Oracle-F80000?style=flat&logo=oracle&logoColor=white)]()
+[![HikariCP](https://img.shields.io/badge/HikariCP-000000?style=flat&logo=java&logoColor=white)]()
+[![JDBC](https://img.shields.io/badge/Spring_JDBC-6DB33F?style=flat&logo=spring&logoColor=white)]()
 ## 개요
 
 - Java 21, Spring Boot, Spring Batch 기반
