@@ -28,7 +28,6 @@ import javax.sql.DataSource;
 import java.sql.DatabaseMetaData;
 import java.sql.ResultSet;
 import java.util.*;
-import java.util.stream.Collectors;
 
 @Slf4j
 @Configuration
@@ -121,10 +120,7 @@ public class MigrationBatchConfig {
         return chunk -> {
             if (chunk.isEmpty()) return;
             Set<String> cols = chunk.getItems().get(0).keySet();
-            String sql = String.format("INSERT INTO KDM.%s (%s) VALUES (%s)",
-                    tableName,
-                    String.join(", ", cols),
-                    cols.stream().map(c -> ":" + c).collect(Collectors.joining(", ")));
+            String sql = MigrationSqlBuilder.insertSql("KDM", tableName, cols);
             template.batchUpdate(sql, chunk.getItems().toArray(new Map[0]));
         };
     }
